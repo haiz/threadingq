@@ -50,55 +50,65 @@ class WorkerThread(threading.Thread):
 
         self.logger.info(self.f(f"Exiting in {round(time.time() - start_time, 4)} seconds"))
 
+    # Pull data from queue to process
     async def process_data(self):
         params = copy.deepcopy(self.handler_params)
         await self._build_params(params)
 
         empty_queue_waiting_time = 0.1
         while not self.func_is_expired():
-            start_acquire_time = time.time()
-            sleep_time = 0.001
-            while not self.queue_lock.acquire():
-                await asyncio.sleep(sleep_time)
-                if sleep_time < 0.1:
-                    sleep_time += 0.001
-
-            acquire_time = time.time() - start_acquire_time
-            if acquire_time > 1:
-                self.logger.warning(self.f(f"acquire lock time: {acquire_time}"))
-
-            if not self.message_queue.empty():
-                data = self.message_queue.get()
-                self.queue_lock.release()
-                self.logger.debug(self.f(f"processing {data}"))
-
-                ex = None
-                try:
-                    await execute_func(self.handler, data, **params)
-                except Exception as tex:
-                    ex = tex
-                    self.logger.exception(self.f(f"Worker error on data (retry={self.retry_count}): {data}"))
-
-                if ex and self.retry_count > 0:
-                    ex = None
-                    for i in range(self.retry_count):
-                        try:
-                            await self.retry(data, params)
-                            break
-                        except Exception as tex:
-                            ex = tex
-                            self.logger.exception(self.f(f"Retry {i + 1} error on data {data}."))
-
-                if ex and self.on_failure:
-                    self.on_failure(data, ex)
+            data = await self.pull()
+            if data:
+                await self._process_data(data, params)
 
                 empty_queue_waiting_time = 0.1
             else:
-                self.queue_lock.release()
                 await asyncio.sleep(empty_queue_waiting_time)
-                empty_queue_waiting_time += 0.1
+                if empty_queue_waiting_time < 1:
+                    empty_queue_waiting_time += 0.1
 
         await execute_func(self.on_close, **params)
+
+    async def _process_data(self, data, params):
+        self.logger.debug(self.f(f"processing {data}"))
+        ex = None
+        try:
+            await execute_func(self.handler, data, **params)
+        except Exception as tex:
+            ex = tex
+            self.logger.exception(self.f(f"Worker error on data (retry={self.retry_count}): {data}"))
+
+        if ex and self.retry_count > 0:
+            ex = None
+            for i in range(self.retry_count):
+                try:
+                    await self.retry(data, params)
+                    break
+                except Exception as tex:
+                    ex = tex
+                    self.logger.exception(self.f(f"Retry {i + 1} error on data {data}."))
+
+        if ex and self.on_failure:
+            self.on_failure(data, ex)
+
+    async def pull(self):
+        start_acquire_time = time.time()
+        sleep_time = 0.001
+        while not self.queue_lock.acquire():
+            await asyncio.sleep(sleep_time)
+            if sleep_time < 0.1:
+                sleep_time += 0.001
+
+        acquire_time = time.time() - start_acquire_time
+        if acquire_time > 1:
+            self.logger.warning(self.f(f"acquire lock time: {acquire_time}"))
+
+        data = None
+        if not self.message_queue.empty():
+            data = self.message_queue.get()
+
+        self.queue_lock.release()
+        return data
 
     async def _build_params(self, params: dict):
         built_params = await execute_func(self.worker_params_builder)

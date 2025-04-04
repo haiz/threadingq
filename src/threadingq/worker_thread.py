@@ -111,7 +111,7 @@ class WorkerThread(threading.Thread):
         return data
 
     async def _build_params(self, params: dict):
-        built_params = await execute_func(self.worker_params_builder)
+        built_params = await execute_func(self.worker_params_builder, **params)
         if isinstance(built_params, dict):
             params.update(built_params)
 

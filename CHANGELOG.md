@@ -4,11 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.0.2 (4th Apr, 2025)
+
+### Add:
+
+- Build params has params as the thread
 
 ## 0.0.1 (9th Jan, 2024)
 
 ### Add:
 
-* Support queue inside queue
+- Support queue inside queue
 
 ## 0.0.0 (9th Jan, 2024)
